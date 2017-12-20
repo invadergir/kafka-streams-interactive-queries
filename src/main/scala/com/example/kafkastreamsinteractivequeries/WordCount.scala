@@ -82,16 +82,52 @@ object WordCount {
     System.exit(0)
   }
 
+  val inputTopic = "input-topic"
+  val outputTopic = "output-topic"
+  val countsStoreName = "counts-store"
+  val port = 8080
+
+  /** Process the stream
+    */
+  def processStream(
+    builder: StreamsBuilder,
+    inputTopic: String,
+    outputTopic: String
+  ): Topology = {
+
+    val source: KStream[String, String] = builder.stream(inputTopic)
+
+    // split into words
+    val words: KStream[String, String] = source.flatMapValues { s =>
+      s.toLowerCase.split("\\W+").toIterable.asJava
+    }
+
+    // Key the stream on the value string, i.e. the lower cased word by using
+    // groupBy.
+    // Store in 'counts-store'.  Can be queried.
+    val counts: KTable[String, Long] = words
+      .groupBy((key, value) => value)
+      .count(Materialized.as(countsStoreName).asInstanceOf[Materialized[String, Long, KeyValueStore[Bytes, Array[Byte]]]])
+    //todo later try this: .count("counts-store")
+
+    // Output counts to output topic.
+    counts.toStream().to(outputTopic, Produced.`with`(Serdes.String(), Serdes.Long()))
+    //counts.toStream.to // to(stringSerde, longSerde, "output-topic-2")
+
+    // Print out the topology (sources, sinks, and global state stores)
+    val topology: Topology = builder.build()
+    println(">>>>  topology = " + topology.describe)
+    // or easier, like this:
+    //println(">>>>  topology = "+builder.build.describe)
+
+    topology
+  }
+
   /** Main method
     * You can add an HTTP server (start on separate thread of course) to query
     * local state.  In this app we just use a command line interface.
     */
   def run() {
-
-    val inputTopic = "input-topic"
-    val outputTopic = "output-topic"
-    val countsStoreName = "counts-store"
-    val port = 8080
 
     val config: Properties = {
       val p = new Properties()
@@ -122,30 +158,7 @@ object WordCount {
     // create a topology builder
     val builder: StreamsBuilder = new StreamsBuilder()
 
-    val source: KStream[String, String] = builder.stream(inputTopic)
-
-    // split into words
-    val words: KStream[String, String] = source.flatMapValues { s =>
-      s.toLowerCase.split("\\W+").toIterable.asJava
-    }
-
-    // Key the stream on the value string, i.e. the lower cased word by using
-    // groupBy.
-    // Store in 'counts-store'.  Can be queried.
-    val counts: KTable[String, Long] = words
-      .groupBy((key, value) => value)
-      .count(Materialized.as(countsStoreName).asInstanceOf[Materialized[String, Long, KeyValueStore[Bytes, Array[Byte]]]])
-    //todo later try this: .count("counts-store")
-
-    // Output counts to output topic.
-    counts.toStream().to(outputTopic, Produced.`with`(Serdes.String(), Serdes.Long()))
-    //counts.toStream.to // to(stringSerde, longSerde, "output-topic-2")
-
-    // Print out the topology (sources, sinks, and global state stores)
-    val topology: Topology = builder.build()
-    println(">>>>  topology = " + topology.describe)
-    // or easier, like this: 
-    //println(">>>>  topology = "+builder.build.describe)
+    val topology = processStream(builder, inputTopic, outputTopic)
 
     // Create the streams object from the topology
     val stream: KafkaStreams = new KafkaStreams(topology, config)

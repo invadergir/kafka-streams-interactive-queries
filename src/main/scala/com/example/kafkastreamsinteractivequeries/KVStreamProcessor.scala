@@ -1,9 +1,5 @@
 package com.example.kafkastreamsinteractivequeries
 
-//import org.json4s._
-//import org.json4s.JsonDSL._
-//import org.json4s.jackson.JsonMethods._
-//import org.json4s.jackson.Serialization.{read, write}
 import java.util.concurrent.CountDownLatch
 
 import com.typesafe.scalalogging.Logger
@@ -28,6 +24,10 @@ import scala.concurrent.Future
 object KVStreamProcessor {
 
   val appName = "KVStreamConsumer-App"
+
+  val inputTopic = "input-topic"
+  val outputTopic = "output-topic"
+  val storeName = "kv-store"
 
   // logging
   LoggerUtil.setRootLogLevel(ch.qos.logback.classic.Level.INFO)
@@ -74,15 +74,34 @@ object KVStreamProcessor {
     System.exit(0)
   }
 
+  /** Process the stream
+    */
+  def processStream(
+    builder: StreamsBuilder,
+    inputTopic: String,
+    outputTopic: String
+  ): Topology = {
+
+    val source: KStream[String, String] = builder.stream(inputTopic)
+
+    // This looks like an error in the IDE but it's ok (java conversion issue probably):
+    source
+      .groupBy( (k,v) => k )
+      .reduce (
+        (a, b) => b,
+        Materialized.as(storeName).asInstanceOf[Materialized[String, String, KeyValueStore[Bytes, Array[Byte]]]]
+      )
+      // output to topic
+      .toStream().to(outputTopic, Produced.`with`(Serdes.String(), Serdes.String()))
+
+    builder.build()
+  }
+
   /** Main method
     * You can add an HTTP server (start on separate thread of course) to query
     * local state.  In this app we just use a command line interface.
     */
   def run() {
-
-    val inputTopic = "input-topic"
-    val outputTopic = "output-topic"
-    val storeName = "kv-store"
 
     val config: Properties = {
       val p = new Properties()
@@ -113,30 +132,14 @@ object KVStreamProcessor {
     // create a topology builder
     val builder: StreamsBuilder = new StreamsBuilder()
 
-    val source: KStream[String, String] = builder.stream(inputTopic)
-
-    // This looks like an error in the IDE but it's ok (java conversion issue probably):
-    println("### ### ### 1")
-    source
-      .groupBy( (k,v) => k )
-      .reduce (
-        (a, b) => b,
-        Materialized.as(storeName).asInstanceOf[Materialized[String, String, KeyValueStore[Bytes, Array[Byte]]]]
-      )
-      // output to topic
-      .toStream().to(outputTopic, Produced.`with`(Serdes.String(), Serdes.String()))
-
     // Print out the topology (sources, sinks, and global state stores)
-    println("### ### ### 2")
-    val topology: Topology = builder.build()
+    val topology: Topology = processStream(builder, inputTopic, outputTopic)
     println(">>>>  topology = " + topology.describe)
     // or easier, like this: 
     //println(">>>>  topology = "+builder.build.describe)
 
     // Create the streams object from the topology
-    println("### ### ### 3")
     val stream: KafkaStreams = new KafkaStreams(topology, config)
-    println("### ### ### 4")
 
     import scala.concurrent.ExecutionContext.Implicits.global
     // Run this in a separate thread so we can handle input in main thread.

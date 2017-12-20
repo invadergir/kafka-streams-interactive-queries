@@ -29,6 +29,7 @@ libraryDependencies ++= Seq(
   "com.typesafe.scala-logging" %% "scala-logging" % "3.5.0",
   
   // For testing:
+  "com.madewithtea" %% "mockedstreams" % "1.5.0" % "test",
   "org.scalatest" %% "scalatest" % scalatestVer % "test"
   //"org.scalactic" %% "scalactic" % scalatestVer % "test",
 )
